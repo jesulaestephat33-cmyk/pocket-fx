@@ -93,7 +93,7 @@ async function tick(){
     }
     drawLines(a);
     const pl = (a.side==='BUY' ? price - a.entry : a.entry - price) / a.risk;
-    show(`<b style="color:${a.side==='BUY' ? '#29D398' : '#FF5C72'}">${a.side} NOW</b> · ${asset} ${tf} · entrée ${fmt(a.entry)} · SL ${fmt(a.sl)} · TP ${fmt(a.tp)} · RR ${RR} · en cours : ${pl>=0?'+':''}${pl.toFixed(2)}R`, a.side==='BUY' ? '#29D398' : '#FF5C72');
+    show(`<b style="color:${a.side==='BUY' ? '#29D398' : '#FF5C72'}">Signal Fib · ${a.side} ${Date.now()/1000 - a.t0 < 60 ? 'NOW' : 'EN COURS'}</b> · ${asset} ${tf} · entrée ${fmt(a.entry)} · SL ${fmt(a.sl)} · TP ${fmt(a.tp)} · RR ${RR} · en cours : ${pl>=0?'+':''}${pl.toFixed(2)}R`, a.side==='BUY' ? '#29D398' : '#FF5C72');
     return;
   }
 
@@ -102,7 +102,7 @@ async function tick(){
     active[akey] = { side:s.side, entry:s.entry, sl:s.sl, tp:s.tp, risk:s.risk, key:s.key };
     if(typeof PFXJ !== 'undefined' && PFXJ.record) PFXJ.record({ src:'FIB', asset, tf, side:s.side, entry:s.entry, sl:s.sl, tp:s.tp });
     drawLines(active[akey]); beep();
-    show(`<b style="color:${s.side==='BUY' ? '#29D398' : '#FF5C72'}">${s.side} NOW</b> · ${asset} ${tf} · entrée ${fmt(s.entry)} · SL ${fmt(s.sl)} · TP ${fmt(s.tp)} · RR ${RR}`, s.side==='BUY' ? '#29D398' : '#FF5C72');
+    show(`<b style="color:${s.side==='BUY' ? '#29D398' : '#FF5C72'}">Signal Fib · ${s.side} NOW</b> · ${asset} ${tf} · entrée ${fmt(s.entry)} · SL ${fmt(s.sl)} · TP ${fmt(s.tp)} · RR ${RR}`, s.side==='BUY' ? '#29D398' : '#FF5C72');
   } else {
     clearLines();
     show(`Signal Fib ${asset} ${tf} : <b>${s.state==='approach' ? '⏳ approche' : 'attente'}</b> · ${s.why}`, s.state==='approach' ? '#F5B841' : '#232838');
