@@ -54,8 +54,10 @@ root.setState = function(kind, label, confidence, level){
     }
     const d = lastSig[asset];
     if(d && d.state === kind && d.signal_time){
-      const ageMin = (Date.now()/1000 - d.signal_time) / 60;
-      const entry = +(d.entry || d.price_exness), sl = +d.sl, tp = +d.tp;
+      // si ce trade est déjà ouvert dans le journal (signal ré-émis par le moteur), on affiche ton trade, pas le nouveau signal
+      const ot = openTrade(asset), same = ot && ot.side === side;
+      const ageMin = (Date.now()/1000 - (same ? ot.t0 : d.signal_time)) / 60;
+      const entry = same ? +ot.entry : +(d.entry || d.price_exness), sl = same ? +ot.sl : +d.sl, tp = same ? +ot.tp : +d.tp;
       const wrong = kind === 'buy' ? !(sl < entry && entry < tp) : !(tp < entry && entry < sl);
       const bad = wrong || (entry > 0 && sl > 0 && Math.abs(entry - sl) < entry * 0.0002);
       if(bad || ageMin >= NOW_MIN){
