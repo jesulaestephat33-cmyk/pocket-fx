@@ -1,7 +1,7 @@
 /* Pocket FX - cycle de vie du signal dans le gros panneau :
    BUY NOW / SELL NOW (clignotant) tant que la bougie n'a pas passé l'entrée (~1 min), puis BUY EN COURS / SELL EN COURS
-   (fixe, avec le R actuel, SL et TP tracés sur le graphique), puis FIN DE TRADE (TP ou SL touché, WIN / LOSS).
-   Les trades passés restent tracés sur le graphique en pointillé de l'entrée jusqu'à la sortie. */
+   (fixe, avec le R actuel), puis FIN DE TRADE (TP ou SL touché, WIN / LOSS). Les trades passés sont tracés sur le graphique
+   en pointillé de l'entrée jusqu'à la sortie. Un SL collé à l'entrée ou du mauvais côté est signalé comme invalide. */
 (function(root){
 'use strict';
 if(typeof PFXJ === 'undefined' || !PFXJ.finished) return;
@@ -10,20 +10,15 @@ const _setState = root.setState, _updateMarker = root.updateMarker;
 if(typeof _setState !== 'function') return;
 
 // on garde la dernière réponse /api/signal et le dernier prix de chaque actif
-const lastSig = {}, lastPx = {};
+const lastPx = {};
 const _fetch = root.fetch.bind(root);
 root.fetch = function(url, o){
   const p = _fetch(url, o);
   try{
     const u = String(url), a = new URL(u, location.href).searchParams.get('asset');
-    const isSig = u.indexOf('/api/signal') >= 0, isCan = u.indexOf('/api/candles') >= 0;
-    if(a && (isSig || isCan)){
-      // la réponse n'est rendue à la page qu'après stockage : setState verra toujours la donnée à jour
-      return p.then(r => r.clone().json().then(d => {
-        if(isSig) lastSig[a] = d;
-        else if(Array.isArray(d) && d.length) lastPx[a] = d[d.length-1].close;
-        return r;
-      }).catch(() => r));
+    if(a && u.indexOf('/api/candles') >= 0){
+      // dernier prix de l'actif (stocké avant que la page reçoive la réponse)
+      return p.then(r => r.clone().json().then(d => { if(Array.isArray(d) && d.length) lastPx[a] = d[d.length-1].close; return r; }).catch(() => r));
     }
   }catch(e){}
   return p;
@@ -38,64 +33,55 @@ function openTrade(asset){
 }
 const fp = p => Math.abs(p) >= 100 ? (+p).toFixed(2) : (+p).toFixed(4);
 
-root.setState = function(kind, label, confidence, level){
+// la page appelle setState(data) avec l'objet renvoyé par /api/signal ; on affiche le texte voulu puis on remplace le titre
+function render(headline, html, colorState){
+  _setState({ state: colorState, message: html, confidence: null });
+  const panel = document.getElementById('signalPanel'), st = document.getElementById('signalState');
+  if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
+  if(st){ st.textContent = headline; st.className = 'signal-state ' + (colorState === 'buy' || colorState === 'sell' ? colorState : 'wait'); }
+}
+function rLive(asset, side, entry, sl){
+  const px = lastPx[asset], risk = Math.abs(entry - sl);
+  if(!px || !risk) return '';
+  const rr = (px - entry) * (side === 'BUY' ? 1 : -1) / risk;
+  return ` · en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
+}
+root.setState = function(data){
+  if(!data || typeof data !== 'object') return _setState.apply(this, arguments);
+  const kind = data.state, asset = currentAsset.id;
   if(kind === 'buy' || kind === 'sell'){
-    const asset = currentAsset.id, side = kind.toUpperCase();
-    const t = PFXJ.finished(asset, side, level);
+    const side = kind.toUpperCase();
+    const t = PFXJ.finished(asset, side, data.level);
     if(t){
-      const win = t.result === 'win', exp = t.result === 'expired';
-      _setState('wait', 'Fin de trade', null, null);
-      const conf = document.getElementById('confidenceText');
-      const out = win ? t.tp : t.sl;
-      if(conf) conf.innerHTML = exp
+      const win = t.result === 'win', exp = t.result === 'expired', out = win ? t.tp : t.sl;
+      render('Fin de trade', exp
         ? `<b style="color:#F5B841">${t.side} ${t.asset} expiré</b> · ni TP ni SL touché en ${PFXJ.maxMin} min · entrée ${fp(t.entry)} · en attente d'un nouveau signal`
-        : `<b style="color:${win ? '#29D398' : '#FF5C72'}">${t.side} ${t.asset} · ${win ? 'TP touché · WIN +' + t.r.toFixed(2) + 'R' : 'SL touché · LOSS -1R'}</b> · entrée ${fp(t.entry)} → sortie ${fp(out)} · en attente d'un nouveau signal`;
+        : `<b style="color:${win ? '#29D398' : '#FF5C72'}">${t.side} ${t.asset} · ${win ? 'TP touché · WIN +' + t.r.toFixed(2) + 'R' : 'SL touché · LOSS -1R'}</b> · entrée ${fp(t.entry)} → sortie ${fp(out)} · en attente d'un nouveau signal`, 'wait');
       return;
     }
-    const d = lastSig[asset] || {};
     // si ce trade est déjà ouvert dans le journal (signal ré-émis par le moteur), on affiche ton trade, pas le nouveau signal
     const ot = openTrade(asset), same = !!(ot && ot.side === side);
-    if(same || (d.state === kind && d.signal_time)){
-      const ageMin = (Date.now()/1000 - (same ? ot.t0 : d.signal_time)) / 60;
-      const entry = same ? +ot.entry : +(d.entry || d.price_exness), sl = same ? +ot.sl : +d.sl, tp = same ? +ot.tp : +d.tp;
+    if(same || data.signal_time){
+      const ageMin = (Date.now()/1000 - (same ? ot.t0 : data.signal_time)) / 60;
+      const entry = same ? +ot.entry : +(data.entry || data.price_exness), sl = same ? +ot.sl : +data.sl, tp = same ? +ot.tp : +data.tp;
       const wrong = kind === 'buy' ? !(sl < entry && entry < tp) : !(tp < entry && entry < sl);
       const bad = wrong || (entry > 0 && sl > 0 && Math.abs(entry - sl) < entry * 0.0002);
-      if(bad || ageMin >= NOW_MIN){
-        const r = _setState.apply(this, arguments);
-        const panel = document.getElementById('signalPanel'), st = document.getElementById('signalState'), conf = document.getElementById('confidenceText');
-        if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
-        if(bad){
-          if(st){ st.textContent = 'SIGNAL INVALIDE'; st.className = 'signal-state wait'; }
-          if(conf) conf.innerHTML = `<b style="color:#F5B841">${wrong ? 'Signal incohérent : SL/TP du mauvais côté du prix' : "SL trop proche de l'entrée (" + fp(Math.abs(entry - sl)) + ")"}</b> · ne pas prendre`;
-        } else {
-          const px = lastPx[asset];
-          let pl = '';
-          if(px && entry && sl && entry !== sl){
-            const dir = side === 'BUY' ? 1 : -1, rr = (px - entry) * dir / Math.abs(entry - sl);
-            pl = ` · en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
-          }
-          if(st) st.textContent = side + ' EN COURS';
-          if(conf) conf.innerHTML = `Entrée ${fp(entry)} · SL ${fp(sl)} · TP ${fp(tp)} · depuis ${Math.round(ageMin)} min${pl}`;
-        }
-        return r;
+      if(bad){
+        render('SIGNAL INVALIDE', `<b style="color:#F5B841">${wrong ? 'Signal incohérent : SL/TP du mauvais côté du prix' : "SL trop proche de l'entrée (" + fp(Math.abs(entry - sl)) + ")"}</b> · ne pas prendre`, 'wait');
+        return;
+      }
+      if(ageMin >= NOW_MIN){
+        render(side + ' EN COURS', `Entrée ${fp(entry)} · SL ${fp(sl)} · TP ${fp(tp)} · depuis ${Math.round(ageMin)} min${rLive(asset, side, entry, sl)}`, kind);
+        return;
       }
     }
   }
   // le moteur est repassé en attente (redémarrage, tendance inversée...) mais un trade S/R est toujours ouvert dans le journal
-  if(kind === 'wait' && !/hors ligne/.test(String(label))){
-    const o = openTrade(currentAsset.id);
+  if(kind === 'wait' && !/hors ligne/.test(String(data.message || ''))){
+    const o = openTrade(asset);
     if(o){
-      const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
-      const panel = document.getElementById('signalPanel'), conf = document.getElementById('confidenceText');
-      if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
-      const px = lastPx[currentAsset.id], risk = Math.abs(o.entry - o.sl);
-      let pl = '';
-      if(px && risk){
-        const rr = (px - o.entry) * (o.side === 'BUY' ? 1 : -1) / risk;
-        pl = ` · en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
-      }
-      if(conf) conf.innerHTML = `Entrée ${fp(o.entry)} · SL ${fp(o.sl)} · TP ${fp(o.tp)} · depuis ${Math.round((Date.now()/1000 - o.t0) / 60)} min${pl}`;
-      return r;
+      render(o.side + ' EN COURS', `Entrée ${fp(o.entry)} · SL ${fp(o.sl)} · TP ${fp(o.tp)} · depuis ${Math.round((Date.now()/1000 - o.t0) / 60)} min${rLive(asset, o.side, o.entry, o.sl)}`, o.side.toLowerCase());
+      return;
     }
   }
   return _setState.apply(this, arguments);
