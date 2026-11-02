@@ -312,12 +312,16 @@ def compute_signal(asset_id, symbol):
         if hit:
             position_direction[asset_id] = None
             last_signal_data[asset_id] = None
+            COOLDOWN[asset_id] = time.time() + 300
             label = "Take profit atteint" if hit == "tp" else "Stop loss touché"
             return {"state": "close", "confidence": 90, "level": round(price, 2),
                     "message": f"{asset_id} : {label} — CLOSE la position", "updated_at": now_iso()}
         out = dict(held)
         out["updated_at"] = now_iso()
         return out
+
+    if time.time() < COOLDOWN.get(asset_id, 0):
+        return {"state": "wait", "confidence": 0, "level": None, "message": f"{asset_id} : pause après la fin du dernier signal", "updated_at": now_iso()}
 
     zone = nearest_zone(symbol, direction, price)
     if zone is None:
@@ -348,6 +352,11 @@ def compute_signal(asset_id, symbol):
             risk = sl - price
             fallback_tp = round(price - risk * 2, 2)
             tp = round(target["level"], 2) if (target and (price - target["level"]) >= risk * MIN_REWARD_MULT) else fallback_tp
+
+        if risk <= 0 or risk < max(zone["tolerance"] * 0.5, price * 0.0002):
+            position_direction[asset_id] = None
+            return {"state": "wait", "confidence": 15, "level": level_r,
+                    "message": f"{asset_id} : signal ignoré (prix déjà au-delà de la zone ou SL trop proche)", "updated_at": now_iso()}
 
         result = {
             "state": state, "confidence": confidence, "level": level_r,
@@ -382,6 +391,9 @@ def compute_signal(asset_id, symbol):
 # ------------------------------------------------------------------
 # Boucle d'analyse en arrière-plan
 # ------------------------------------------------------------------
+
+COOLDOWN = {}
+
 
 def analysis_loop():
     while True:
