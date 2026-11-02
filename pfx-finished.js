@@ -125,6 +125,10 @@ function drawHist(){
         const mk = (price, c, title) => openLines.push(candleSeries.createPriceLine({ price, color:c, lineWidth:1,
           lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible:true, title }));
         mk(t.sl, '#FF5C72', 'SL'); mk(t.tp, '#29D398', 'TP');
+        // série invisible : force l'échelle du graphique à inclure SL et TP
+        const fit = chart.addLineSeries({ color:'rgba(0,0,0,0)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+        fit.setData([{ time:x0, value:t.tp }, { time:x1, value:t.sl }]);
+        histSeries.push(fit);
       }
     });
   }catch(e){}
