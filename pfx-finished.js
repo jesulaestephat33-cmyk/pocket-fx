@@ -27,6 +27,14 @@ root.fetch = function(url, o){
   }catch(e){}
   return p;
 };
+// trade S/R encore ouvert d'un actif, lu directement dans le journal enregistré
+function openTrade(asset){
+  try{
+    const j = JSON.parse(localStorage.getItem('pfx_journal_v1') || '[]');
+    const last = j.filter(t => t.src === 'S/R' && t.asset === asset).slice(-1)[0];
+    return last && !last.result ? last : null;
+  }catch(e){ return null; }
+}
 const fp = p => Math.abs(p) >= 100 ? (+p).toFixed(2) : (+p).toFixed(4);
 
 root.setState = function(kind, label, confidence, level){
@@ -89,6 +97,23 @@ root.setState = function(kind, label, confidence, level){
   if(kind === 'wait' && !/hors ligne/.test(String(label))){
     const o = PFXJ.latest(currentAsset.id, 'S/R');
     if(o && !o.result){
+      const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
+      const panel = document.getElementById('signalPanel'), conf = document.getElementById('confidenceText');
+      if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
+      const px = lastPx[currentAsset.id], risk = Math.abs(o.entry - o.sl);
+      let pl = '';
+      if(px && risk){
+        const rr = (px - o.entry) * (o.side === 'BUY' ? 1 : -1) / risk;
+        pl = ` · en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
+      }
+      if(conf) conf.innerHTML = `Entrée ${fp(o.entry)} · SL ${fp(o.sl)} · TP ${fp(o.tp)} · depuis ${Math.round((Date.now()/1000 - o.t0) / 60)} min${pl}`;
+      return r;
+    }
+  }
+  // le moteur est repassé en attente (redémarrage, tendance inversée...) mais un trade S/R est toujours ouvert dans le journal
+  if(kind === 'wait' && !/hors ligne/.test(String(label))){
+    const o = openTrade(currentAsset.id);
+    if(o){
       const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
       const panel = document.getElementById('signalPanel'), conf = document.getElementById('confidenceText');
       if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
