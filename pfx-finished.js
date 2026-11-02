@@ -1,10 +1,11 @@
 /* Pocket FX - cycle de vie du signal dans le gros panneau :
-   BUY NOW / SELL NOW (clignotant) pendant les 3 premières minutes, puis BUY EN COURS / SELL EN COURS (fixe, avec le résultat
-   actuel), puis "Signal terminé" (WIN / LOSS) ou "Signal expiré". Un SL collé à l'entrée est signalé comme invalide. */
+   BUY NOW / SELL NOW (clignotant) tant que la bougie n'a pas passé l'entrée (~1 min), puis BUY EN COURS / SELL EN COURS
+   (fixe, avec le R actuel), puis FIN DE TRADE (TP ou SL touché, WIN / LOSS). Les trades passés sont tracés sur le graphique
+   en pointillé de l'entrée jusqu'à la sortie. Un SL collé à l'entrée ou du mauvais côté est signalé comme invalide. */
 (function(root){
 'use strict';
 if(typeof PFXJ === 'undefined' || !PFXJ.finished) return;
-const NOW_MIN = 3;                                  // durée du clignotement "NOW" (minutes)
+const NOW_MIN = 1;                                  // durée du clignotement "NOW" (minutes)
 const _setState = root.setState, _updateMarker = root.updateMarker;
 if(typeof _setState !== 'function') return;
 
@@ -43,10 +44,12 @@ root.setState = function(kind, label, confidence, level){
     const t = PFXJ.finished(asset, side, level);
     if(t){
       const win = t.result === 'win', exp = t.result === 'expired';
-      _setState('wait', exp ? 'Signal expiré' : 'Signal terminé', null, null);
+      _setState('wait', 'Fin de trade', null, null);
       const conf = document.getElementById('confidenceText');
-      if(conf) conf.innerHTML = exp ? `<b style="color:#F5B841">EXPIRÉ</b> · ${t.side} ${t.asset} · ni TP ni SL touché en ${PFXJ.maxMin} min · en attente d'un nouveau signal`
-        : `<b style="color:${win ? '#29D398' : '#FF5C72'}">${win ? 'WIN +' + t.r.toFixed(2) + 'R' : 'LOSS -1R'}</b> · ${t.side} ${t.asset} · en attente d'un nouveau signal`;
+      const out = win ? t.tp : t.sl;
+      if(conf) conf.innerHTML = exp
+        ? `<b style="color:#F5B841">${t.side} ${t.asset} expiré</b> · ni TP ni SL touché en ${PFXJ.maxMin} min · entrée ${fp(t.entry)} · en attente d'un nouveau signal`
+        : `<b style="color:${win ? '#29D398' : '#FF5C72'}">${t.side} ${t.asset} · ${win ? 'TP touché · WIN +' + t.r.toFixed(2) + 'R' : 'SL touché · LOSS -1R'}</b> · entrée ${fp(t.entry)} → sortie ${fp(out)} · en attente d'un nouveau signal`;
       return;
     }
     const d = lastSig[asset];
@@ -78,40 +81,6 @@ root.setState = function(kind, label, confidence, level){
   }
   // le moteur est repassé en attente (redémarrage, tendance inversée...) mais un trade S/R est toujours ouvert dans le journal
   if(kind === 'wait' && !/hors ligne/.test(String(label))){
-    const o = PFXJ.latest(currentAsset.id, 'S/R');
-    if(o && !o.result){
-      const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
-      const panel = document.getElementById('signalPanel'), conf = document.getElementById('confidenceText');
-      if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
-      const px = lastPx[currentAsset.id], risk = Math.abs(o.entry - o.sl);
-      let pl = '';
-      if(px && risk){
-        const rr = (px - o.entry) * (o.side === 'BUY' ? 1 : -1) / risk;
-        pl = `  en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
-      }
-      if(conf) conf.innerHTML = `Entrée ${fp(o.entry)}  SL ${fp(o.sl)}  TP ${fp(o.tp)}  depuis ${Math.round((Date.now()/1000 - o.t0) / 60)} min${pl}`;
-      return r;
-    }
-  }
-  // le moteur est repassé en attente (redémarrage, tendance inversée...) mais un trade S/R est toujours ouvert dans le journal
-  if(kind === 'wait' && !/hors ligne/.test(String(label))){
-    const o = PFXJ.latest(currentAsset.id, 'S/R');
-    if(o && !o.result){
-      const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
-      const panel = document.getElementById('signalPanel'), conf = document.getElementById('confidenceText');
-      if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
-      const px = lastPx[currentAsset.id], risk = Math.abs(o.entry - o.sl);
-      let pl = '';
-      if(px && risk){
-        const rr = (px - o.entry) * (o.side === 'BUY' ? 1 : -1) / risk;
-        pl = ` · en cours : <b style="color:${rr >= 0 ? '#29D398' : '#FF5C72'}">${rr >= 0 ? '+' : ''}${rr.toFixed(2)}R</b>`;
-      }
-      if(conf) conf.innerHTML = `Entrée ${fp(o.entry)} · SL ${fp(o.sl)} · TP ${fp(o.tp)} · depuis ${Math.round((Date.now()/1000 - o.t0) / 60)} min${pl}`;
-      return r;
-    }
-  }
-  // le moteur est repassé en attente (redémarrage, tendance inversée...) mais un trade S/R est toujours ouvert dans le journal
-  if(kind === 'wait' && !/hors ligne/.test(String(label))){
     const o = openTrade(currentAsset.id);
     if(o){
       const r = _setState.call(this, o.side.toLowerCase(), o.side + ' EN COURS', 0, null);
@@ -136,4 +105,32 @@ if(typeof _updateMarker === 'function'){
     return _updateMarker.apply(this, arguments);
   };
 }
+
+/* ---- trades passés : ligne pointillée de l'entrée à la sortie ---- */
+const TFSEC = { M1:60, M5:300, M15:900, H1:3600, H4:14400 };
+let histSeries = [], histKey = '';
+function clearHist(){ histSeries.forEach(x => { try{ chart.removeSeries(x); }catch(e){} }); histSeries = []; }
+function drawHist(){
+  try{
+    if(typeof chart === 'undefined' || !chart || typeof LightweightCharts === 'undefined') return;
+    const raw = localStorage.getItem('pfx_journal_v1') || '[]';
+    const key = currentAsset.id + '|' + currentTf + '|' + raw.length + '|' + raw.slice(-80);
+    if(key === histKey) return; histKey = key;
+    clearHist();
+    const tf = TFSEC[currentTf] || 300, now = Math.floor(Date.now()/1000);
+    JSON.parse(raw).filter(t => t.asset === currentAsset.id && t.result !== 'expired').slice(-40).forEach(t => {
+      const open = !t.result, win = t.result === 'win';
+      const x0 = Math.floor(t.t0 / tf) * tf;
+      let x1 = Math.floor((open ? now : t.t1) / tf) * tf; if(x1 <= x0) x1 = x0 + tf;
+      const y1 = open ? t.entry : (win ? t.tp : t.sl);
+      const color = open ? '#F5B841' : (win ? '#29D398' : '#FF5C72');
+      const ser = chart.addLineSeries({ color, lineWidth:2, lineStyle: LightweightCharts.LineStyle.Dotted,
+        priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+      ser.setData([{ time:x0, value:t.entry }, { time:x1, value:y1 }]);
+      if(!open) ser.setMarkers([{ time:x1, position:'inBar', color, shape:'circle', text: win ? 'TP +' + t.r.toFixed(1) + 'R' : 'SL -1R' }]);
+      histSeries.push(ser);
+    });
+  }catch(e){}
+}
+setInterval(drawHist, 3000); setTimeout(drawHist, 2000);
 })(window);
