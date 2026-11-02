@@ -42,7 +42,7 @@ api.record = function(o){
   if(!(o.entry && o.sl && o.tp) || o.entry === o.sl) return;
   if(journal.some(t => !t.result && t.asset===o.asset && t.src===o.src && t.side===o.side && t.tf===o.tf)) return;
   journal.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,6), src:o.src, asset:o.asset, tf:o.tf||'', side:o.side,
-                 entry:o.entry, sl:o.sl, tp:o.tp, lvl:o.lvl, t0: Math.floor(Date.now()/1000), result:null, r:null, t1:null });
+                 entry:o.entry, sl:o.sl, tp:o.tp, lvl:o.lvl, t0: o.t0 || Math.floor(Date.now()/1000), result:null, r:null, t1:null });
   save(journal); render();
 };
 
@@ -83,8 +83,11 @@ async function pollEngine(){
       const d = await (await fetch(`${BACK}/api/signal?asset=${a.id}`)).json();
       if((d.state==='buy' || d.state==='sell') && d.sl && d.tp){
         const entry = d.entry || d.price_exness || d.price, side = d.state.toUpperCase();
-        if(!journal.some(t => t.src==='S/R' && t.asset===a.id && t.side===side && t.lvl===d.level && t.entry===entry))
-          api.record({ src:'S/R', asset:a.id, tf:'M1', side, entry, sl:+d.sl, tp:+d.tp, lvl:d.level });
+        const t0 = d.signal_time || Math.floor(Date.now()/1000), nowS = Math.floor(Date.now()/1000);
+        const tooTight = Math.abs(entry - d.sl) < entry * 0.0002;
+        const tooOld = nowS - t0 > MAX_AGE;
+        if(!tooTight && !tooOld && !journal.some(t => t.src==='S/R' && t.asset===a.id && t.side===side && t.lvl===d.level && t.entry===entry))
+          api.record({ src:'S/R', asset:a.id, tf:'M1', side, entry, sl:+d.sl, tp:+d.tp, lvl:d.level, t0 });
       }
     }catch(e){}
   }
