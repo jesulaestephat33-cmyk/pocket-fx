@@ -348,17 +348,29 @@ def compute_signal(asset_id, symbol):
         else:
             sl = round(zone["level"] + buffer, 2)
             risk = sl - price
+        # TP = vraie zone solide en face (jamais un nombre de bougies) ; les bougies servent seulement a dire "pas trop loin"
         reward = None
-        if bar:
-            reward = bar * SCALP_TP_ATR
-            target = find_target_zone(symbol, direction, price)
-            if target:   # si une zone adverse est plus proche que ~4 bougies, on sort avant elle
-                dist = (price - target["level"]) if direction == "down" else (target["level"] - price)
-                if dist > 0 and dist < reward:
-                    reward = dist
-        if (not bar) or weak or risk <= 0 or risk > bar * SCALP_SL_ATR_MAX or reward < risk * SCALP_MIN_RR:
+        why = None
+        target = find_target_zone(symbol, direction, price)
+        if weak:
+            why = "zone d'entrée peu testée"
+        elif not bar:
+            why = "pas de données de bougies"
+        elif risk <= 0 or risk > bar * SCALP_SL_ATR_MAX:
+            why = "zone d'entrée trop large"
+        elif not target:
+            why = "aucune zone cible en face"
+        elif target.get("touches", SCALP_MIN_TOUCHES) < SCALP_MIN_TOUCHES:
+            why = "zone cible peu testée"
+        else:
+            dist = (price - target["level"]) if direction == "down" else (target["level"] - price)
+            reward = dist - target.get("tolerance", 0) * 0.5   # on sort juste avant la zone
+            if dist <= 0 or dist > bar * SCALP_REACH_ATR:
+                why = "zone cible trop loin"
+            elif reward < risk * SCALP_MIN_RR:
+                why = "gain trop petit face au risque"
+        if why:
             position_direction[asset_id] = None
-            why = ("zone peu testée" if weak else "zone trop large ou gain trop petit pour un scalp")
             return {"state": "wait", "confidence": 15, "level": level_r,
                     "message": f"{asset_id} : pas de scalp ({why})", "updated_at": now_iso()}
         tp = round(price + reward, 2) if direction == "up" else round(price - reward, 2)
@@ -407,7 +419,7 @@ def compute_signal(asset_id, symbol):
 # ------------------------------------------------------------------
 SCALP_MIN_TOUCHES = 3     # la zone doit avoir ete testee au moins 3 fois
 SCALP_SL_ATR_MAX = 3.0    # SL : 3 bougies M1 au maximum, sinon la zone est trop large
-SCALP_TP_ATR = 4.0        # TP : environ 4 bougies M1
+SCALP_REACH_ATR = 6.0     # la zone cible (TP) doit etre a 6 bougies M1 au maximum, sinon pas de signal
 SCALP_MIN_RR = 1.2        # gain au moins 1.2 fois le risque
 
 
