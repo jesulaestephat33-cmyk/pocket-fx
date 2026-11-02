@@ -340,18 +340,28 @@ def compute_signal(asset_id, symbol):
         position_direction[asset_id] = state
 
         buffer = zone["tolerance"] * 1.2
-        target = find_target_zone(symbol, direction, price)
-        MIN_REWARD_MULT = 1.5
+        bar = scalp_candle_size(symbol)
+        weak = zone["touches"] < SCALP_MIN_TOUCHES
         if direction == "up":
             sl = round(zone["level"] - buffer, 2)
             risk = price - sl
-            fallback_tp = round(price + risk * 2, 2)
-            tp = round(target["level"], 2) if (target and (target["level"] - price) >= risk * MIN_REWARD_MULT) else fallback_tp
         else:
             sl = round(zone["level"] + buffer, 2)
             risk = sl - price
-            fallback_tp = round(price - risk * 2, 2)
-            tp = round(target["level"], 2) if (target and (price - target["level"]) >= risk * MIN_REWARD_MULT) else fallback_tp
+        reward = None
+        if bar:
+            reward = bar * SCALP_TP_ATR
+            target = find_target_zone(symbol, direction, price)
+            if target:   # si une zone adverse est plus proche que ~4 bougies, on sort avant elle
+                dist = (price - target["level"]) if direction == "down" else (target["level"] - price)
+                if dist > 0 and dist < reward:
+                    reward = dist
+        if (not bar) or weak or risk <= 0 or risk > bar * SCALP_SL_ATR_MAX or reward < risk * SCALP_MIN_RR:
+            position_direction[asset_id] = None
+            why = ("zone peu testée" if weak else "zone trop large ou gain trop petit pour un scalp")
+            return {"state": "wait", "confidence": 15, "level": level_r,
+                    "message": f"{asset_id} : pas de scalp ({why})", "updated_at": now_iso()}
+        tp = round(price + reward, 2) if direction == "up" else round(price - reward, 2)
 
         if risk <= 0 or risk < max(zone["tolerance"] * 0.5, price * 0.0002):
             position_direction[asset_id] = None
@@ -391,6 +401,24 @@ def compute_signal(asset_id, symbol):
 # ------------------------------------------------------------------
 # Boucle d'analyse en arrière-plan
 # ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# SCALP : SL serre derriere la zone, TP proche (~4 bougies M1), zones solides seulement
+# ------------------------------------------------------------------
+SCALP_MIN_TOUCHES = 3     # la zone doit avoir ete testee au moins 3 fois
+SCALP_SL_ATR_MAX = 3.0    # SL : 3 bougies M1 au maximum, sinon la zone est trop large
+SCALP_TP_ATR = 4.0        # TP : environ 4 bougies M1
+SCALP_MIN_RR = 1.2        # gain au moins 1.2 fois le risque
+
+
+def scalp_candle_size(symbol, n=14):
+    """Taille moyenne (haut - bas) des n dernieres bougies M1 fermees."""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, n + 1)
+    if rates is None or len(rates) < 5:
+        return None
+    body = rates[:-1]
+    return sum(float(r["high"]) - float(r["low"]) for r in body) / len(body)
+
 
 COOLDOWN = {}
 
