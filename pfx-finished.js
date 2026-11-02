@@ -1,7 +1,7 @@
 /* Pocket FX - cycle de vie du signal dans le gros panneau :
    BUY NOW / SELL NOW (clignotant) tant que la bougie n'a pas passé l'entrée (~1 min), puis BUY EN COURS / SELL EN COURS
-   (fixe, avec le R actuel), puis FIN DE TRADE (TP ou SL touché, WIN / LOSS). Les trades passés sont tracés sur le graphique
-   en pointillé de l'entrée jusqu'à la sortie. Un SL collé à l'entrée ou du mauvais côté est signalé comme invalide. */
+   (fixe, avec le R actuel, SL et TP tracés sur le graphique), puis FIN DE TRADE (TP ou SL touché, WIN / LOSS).
+   Les trades passés restent tracés sur le graphique en pointillé de l'entrée jusqu'à la sortie. */
 (function(root){
 'use strict';
 if(typeof PFXJ === 'undefined' || !PFXJ.finished) return;
@@ -110,8 +110,11 @@ if(typeof _updateMarker === 'function'){
 
 /* ---- trades passés : ligne pointillée de l'entrée à la sortie ---- */
 const TFSEC = { M1:60, M5:300, M15:900, H1:3600, H4:14400 };
-let histSeries = [], histKey = '';
-function clearHist(){ histSeries.forEach(x => { try{ chart.removeSeries(x); }catch(e){} }); histSeries = []; }
+let histSeries = [], histKey = '', openLines = [];
+function clearHist(){
+  histSeries.forEach(x => { try{ chart.removeSeries(x); }catch(e){} }); histSeries = [];
+  openLines.forEach(l => { try{ candleSeries.removePriceLine(l); }catch(e){} }); openLines = [];
+}
 function drawHist(){
   try{
     if(typeof chart === 'undefined' || !chart || typeof LightweightCharts === 'undefined') return;
@@ -132,6 +135,11 @@ function drawHist(){
       ser.setData([{ time:x0, value:t.entry }, { time:x1, value:y1 }]);
       if(!open) ser.setMarkers([{ time:x1, position:'inBar', color, shape:'circle', text: t.side + (win ? ' TP +' + t.r.toFixed(1) + 'R' : ' SL -1R') }]);
       histSeries.push(ser);
+      if(open && t.src === 'S/R'){   // trade en cours : SL et TP bien visibles sur le graphique
+        const mk = (price, c, title) => openLines.push(candleSeries.createPriceLine({ price, color:c, lineWidth:1,
+          lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible:true, title }));
+        mk(t.sl, '#FF5C72', 'SL'); mk(t.tp, '#29D398', 'TP');
+      }
     });
   }catch(e){}
 }
