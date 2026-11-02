@@ -120,8 +120,9 @@ function drawHist(){
     const tf = TFSEC[currentTf] || 300, now = Math.floor(Date.now()/1000);
     JSON.parse(raw).filter(t => t.asset === currentAsset.id && t.result !== 'expired').slice(-40).forEach(t => {
       const open = !t.result, win = t.result === 'win';
-      const x0 = Math.floor(t.t0 / tf) * tf;
-      let x1 = Math.floor((open ? now : t.t1) / tf) * tf; if(x1 <= x0) x1 = x0 + tf;
+      const sh = (typeof timeShift !== 'undefined' ? timeShift : 0);   // même décalage horaire que les bougies de la page
+      const x0 = Math.floor(t.t0 / tf) * tf + sh;
+      let x1 = Math.floor((open ? now : t.t1) / tf) * tf + sh; if(x1 <= x0) x1 = x0 + tf;
       const y1 = open ? t.entry : (win ? t.tp : t.sl);
       const color = open ? '#F5B841' : (win ? '#29D398' : '#FF5C72');
       const ser = chart.addLineSeries({ color, lineWidth:2, lineStyle: LightweightCharts.LineStyle.Dotted,
