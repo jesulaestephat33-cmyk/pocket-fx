@@ -45,14 +45,15 @@ root.setState = function(kind, label, confidence, level){
     if(d && d.state === kind && d.signal_time){
       const ageMin = (Date.now()/1000 - d.signal_time) / 60;
       const entry = +(d.entry || d.price_exness), sl = +d.sl, tp = +d.tp;
-      const bad = entry > 0 && sl > 0 && Math.abs(entry - sl) < entry * 0.0002;
+      const wrong = kind === 'buy' ? !(sl < entry && entry < tp) : !(tp < entry && entry < sl);
+      const bad = wrong || (entry > 0 && sl > 0 && Math.abs(entry - sl) < entry * 0.0002);
       if(bad || ageMin >= NOW_MIN){
         const r = _setState.apply(this, arguments);
         const panel = document.getElementById('signalPanel'), st = document.getElementById('signalState'), conf = document.getElementById('confidenceText');
         if(panel){ panel.classList.remove('alert'); panel.style.removeProperty('--flash-color'); }
         if(bad){
           if(st){ st.textContent = 'SIGNAL INVALIDE'; st.className = 'signal-state wait'; }
-          if(conf) conf.innerHTML = `<b style="color:#F5B841">SL trop proche de l'entrée</b> (${fp(Math.abs(entry - sl))}) · le spread le touche · ne pas prendre`;
+          if(conf) conf.innerHTML = `<b style="color:#F5B841">${wrong ? 'Signal incohérent : SL/TP du mauvais côté du prix' : "SL trop proche de l'entrée (" + fp(Math.abs(entry - sl)) + ")"}</b> · ne pas prendre`;
         } else {
           const px = lastPx[asset];
           let pl = '';

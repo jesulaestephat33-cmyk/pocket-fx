@@ -84,9 +84,10 @@ async function pollEngine(){
       if((d.state==='buy' || d.state==='sell') && d.sl && d.tp){
         const entry = d.entry || d.price_exness || d.price, side = d.state.toUpperCase();
         const t0 = d.signal_time || Math.floor(Date.now()/1000), nowS = Math.floor(Date.now()/1000);
+        const wrongWay = side==='BUY' ? !(d.sl < entry && entry < d.tp) : !(d.tp < entry && entry < d.sl);   // SL/TP du mauvais côté : signal incohérent
         const tooTight = Math.abs(entry - d.sl) < entry * 0.0002;
         const tooOld = nowS - t0 > MAX_AGE;
-        if(!tooTight && !tooOld && !journal.some(t => t.src==='S/R' && t.asset===a.id && t.side===side && t.lvl===d.level && t.entry===entry))
+        if(!tooTight && !tooOld && !wrongWay && !journal.some(t => t.src==='S/R' && t.asset===a.id && t.side===side && t.lvl===d.level && t.sl===+d.sl && t.tp===+d.tp))
           api.record({ src:'S/R', asset:a.id, tf:'M1', side, entry, sl:+d.sl, tp:+d.tp, lvl:d.level, t0 });
       }
     }catch(e){}
