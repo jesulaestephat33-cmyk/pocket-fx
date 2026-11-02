@@ -130,7 +130,7 @@ function drawHist(){
       const ser = chart.addLineSeries({ color, lineWidth:2, lineStyle: LightweightCharts.LineStyle.Dotted,
         priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
       ser.setData([{ time:x0, value:t.entry }, { time:x1, value:y1 }]);
-      if(!open) ser.setMarkers([{ time:x1, position:'inBar', color, shape:'circle', text: win ? 'TP +' + t.r.toFixed(1) + 'R' : 'SL -1R' }]);
+      if(!open) ser.setMarkers([{ time:x1, position:'inBar', color, shape:'circle', text: t.side + (win ? ' TP +' + t.r.toFixed(1) + 'R' : ' SL -1R') }]);
       histSeries.push(ser);
     });
   }catch(e){}
