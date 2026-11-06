@@ -341,7 +341,7 @@ def compute_signal(asset_id, symbol):
 
         buffer = zone["tolerance"] * 1.2
         bar = scalp_candle_size(symbol)
-        weak = zone["touches"] < SCALP_MIN_TOUCHES
+        weak = zone["touches"] < SCALP_ENTRY_TOUCHES
         if direction == "up":
             sl = round(zone["level"] - buffer, 2)
             risk = price - sl
@@ -417,7 +417,8 @@ def compute_signal(asset_id, symbol):
 # ------------------------------------------------------------------
 # SCALP : SL serre derriere la zone, TP proche (~4 bougies M1), zones solides seulement
 # ------------------------------------------------------------------
-SCALP_MIN_TOUCHES = 3     # la zone doit avoir ete testee au moins 3 fois
+SCALP_MIN_TOUCHES = 3     # la zone cible (TP) doit avoir ete testee au moins 3 fois
+SCALP_ENTRY_TOUCHES = 2   # la zone d'entree : au moins 2 touches + bougie de rejet
 SCALP_SL_ATR_MAX = 3.0    # SL : 3 bougies M1 au maximum, sinon la zone est trop large
 SCALP_REACH_ATR = 6.0     # la zone cible (TP) doit etre a 6 bougies M1 au maximum, sinon pas de signal
 SCALP_MIN_RR = 1.2        # gain au moins 1.2 fois le risque
