@@ -348,26 +348,23 @@ def compute_signal(asset_id, symbol):
         else:
             sl = round(zone["level"] + buffer, 2)
             risk = sl - price
-        # TP = vraie zone solide en face (jamais un nombre de bougies) ; les bougies servent seulement a dire "pas trop loin"
+        # TP : zone solide en face si elle est proche, sinon ~4 bougies M1 (jamais plus loin)
         reward = None
         why = None
-        target = find_target_zone(symbol, direction, price)
         if weak:
             why = "zone d'entrée peu testée"
         elif not bar:
             why = "pas de données de bougies"
         elif risk <= 0 or risk > bar * SCALP_SL_ATR_MAX:
             why = "zone d'entrée trop large"
-        elif not target:
-            why = "aucune zone cible en face"
-        elif target.get("touches", SCALP_MIN_TOUCHES) < SCALP_MIN_TOUCHES:
-            why = "zone cible peu testée"
         else:
-            dist = (price - target["level"]) if direction == "down" else (target["level"] - price)
-            reward = dist - target.get("tolerance", 0) * 0.5   # on sort juste avant la zone
-            if dist <= 0 or dist > bar * SCALP_REACH_ATR:
-                why = "zone cible trop loin"
-            elif reward < risk * SCALP_MIN_RR:
+            reward = bar * SCALP_TP_ATR
+            target = find_target_zone(symbol, direction, price)
+            if target and target.get("touches", SCALP_MIN_TOUCHES) >= SCALP_MIN_TOUCHES:
+                dist = (price - target["level"]) if direction == "down" else (target["level"] - price)
+                if 0 < dist < reward:      # zone solide plus proche que 4 bougies : on sort juste avant
+                    reward = dist - target.get("tolerance", 0) * 0.5
+            if reward < risk * SCALP_MIN_RR:
                 why = "gain trop petit face au risque"
         if why:
             position_direction[asset_id] = None
@@ -420,7 +417,7 @@ def compute_signal(asset_id, symbol):
 SCALP_MIN_TOUCHES = 3     # la zone cible (TP) doit avoir ete testee au moins 3 fois
 SCALP_ENTRY_TOUCHES = 2   # la zone d'entree : au moins 2 touches + bougie de rejet
 SCALP_SL_ATR_MAX = 3.0    # SL : 3 bougies M1 au maximum, sinon la zone est trop large
-SCALP_REACH_ATR = 6.0     # la zone cible (TP) doit etre a 6 bougies M1 au maximum, sinon pas de signal
+SCALP_TP_ATR = 4.0        # TP de secours : environ 4 bougies M1
 SCALP_MIN_RR = 1.2        # gain au moins 1.2 fois le risque
 
 

@@ -121,7 +121,7 @@ function drawHist(){
       ser.setData([{ time:x0, value:t.entry }, { time:x1, value:y1 }]);
       if(!open) ser.setMarkers([{ time:x1, position:'inBar', color, shape:'circle', text: t.side + (win ? ' TP +' + t.r.toFixed(1) + 'R' : ' SL -1R') }]);
       histSeries.push(ser);
-      if(open && t.src === 'S/R'){   // trade en cours : SL et TP bien visibles sur le graphique
+      if(open && (t.src === 'S/R' || t.src === 'MICRO')){   // trade en cours : SL et TP bien visibles sur le graphique
         const mk = (price, c, title) => openLines.push(candleSeries.createPriceLine({ price, color:c, lineWidth:1,
           lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible:true, title }));
         mk(t.sl, '#FF5C72', 'SL'); mk(t.tp, '#29D398', 'TP');

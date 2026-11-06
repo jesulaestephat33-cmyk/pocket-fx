@@ -3,19 +3,22 @@
 (function(root){
 'use strict';
 const KEY = 'pfx_journal_v1';
-const MAX_AGE = 24*3600;
+const SIGNAL_MAX_MIN = 60;          // durée de validité d'un signal (minutes)
+const MAX_AGE = SIGNAL_MAX_MIN*60;   // un trade sans TP ni SL après cette durée est classé "expiré"
 const BACK = (typeof BACKEND !== 'undefined') ? BACKEND : 'http://localhost:8000';
 
 function load(){ try{ return JSON.parse(localStorage.getItem(KEY) || '[]'); }catch(e){ return []; } }
 function save(j){ try{ localStorage.setItem(KEY, JSON.stringify(j.slice(-2000))); }catch(e){} }
 let journal = load();
 
+// ---- logique pure (testable) ----
 function settleTrade(t, candles){
   for(const c of candles){
     if(c.time < t.t0 - 60) continue;
+    if(c.time > t.t0 + (t.maxMin || SIGNAL_MAX_MIN)*60) break;
     const hitSL = t.side==='BUY' ? c.low <= t.sl : c.high >= t.sl;
     const hitTP = t.side==='BUY' ? c.high >= t.tp : c.low <= t.tp;
-    if(hitSL) return { result:'loss', r:-1, t1:c.time };
+    if(hitSL) return { result:'loss', r:-1, t1:c.time };        // prudent : si les deux dans la même bougie -> perte
     if(hitTP) return { result:'win', r: Math.abs(t.tp - t.entry) / Math.abs(t.entry - t.sl), t1:c.time };
   }
   return null;
@@ -28,24 +31,28 @@ function stats(j){
            closed:closed.length, wins, losses:closed.length-wins,
            winRate: closed.length ? wins/closed.length*100 : 0, sumR, avgR: closed.length ? sumR/closed.length : 0 };
 }
-const api = { settleTrade, stats };
-api.finished = function(asset, side, lvl){
+const api = { settleTrade, stats, maxMin: SIGNAL_MAX_MIN };
+api.has = function(src, asset, side, lvl, entry){ return journal.some(t => t.src===src && t.asset===asset && t.side===side && t.lvl===lvl && t.entry===entry); };
+api.latest = function(asset, src){ return journal.filter(t => t.asset===asset && t.src===src).slice(-1)[0] || null; };
+api.finished = function(asset, side, lvl){   // dernier trade S/R de l'actif, terminé, même sens et même niveau
   const last = journal.filter(t => t.src==='S/R' && t.asset===asset).slice(-1)[0];
-  return (last && (last.result==='win' || last.result==='loss') && last.side===side && last.lvl===lvl) ? last : null;
+  return (last && (last.result==='win' || last.result==='loss' || last.result==='expired') && last.side===side && last.lvl===lvl) ? last : null;
 };
 root.PFXJ = api;
 if(typeof module !== 'undefined' && module.exports) module.exports = api;
 if(typeof document === 'undefined') return;
 
+// ---- enregistrement ----
 function openCount(asset, src){ return journal.some(t => !t.result && t.asset===asset && t.src===src); }
-api.record = function(o){
+api.record = function(o){   // o = { src, asset, tf, side, entry, sl, tp }
   if(!(o.entry && o.sl && o.tp) || o.entry === o.sl) return;
   if(journal.some(t => !t.result && t.asset===o.asset && t.src===o.src && t.side===o.side && t.tf===o.tf)) return;
   journal.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,6), src:o.src, asset:o.asset, tf:o.tf||'', side:o.side,
-                 entry:o.entry, sl:o.sl, tp:o.tp, lvl:o.lvl, t0: o.t0 || Math.floor(Date.now()/1000), result:null, r:null, t1:null });
+                 entry:o.entry, sl:o.sl, tp:o.tp, lvl:o.lvl, maxMin:o.maxMin, t0: o.t0 || Math.floor(Date.now()/1000), result:null, r:null, t1:null });
   save(journal); render();
 };
 
+// ---- notifications ----
 function toast(text, color){
   let b = document.getElementById('pfxToasts');
   if(!b){ b = document.createElement('div'); b.id = 'pfxToasts';
@@ -56,17 +63,18 @@ function toast(text, color){
   try{ const a = new (root.AudioContext||root.webkitAudioContext)(); const o = a.createOscillator(), g = a.createGain(); o.frequency.value = color==='#29D398' ? 1046 : 330; o.connect(g); g.connect(a.destination); g.gain.setValueAtTime(0.2, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime+0.5); o.start(); o.stop(a.currentTime+0.5); }catch(e){}
 }
 
+// ---- résolution : on rejoue les bougies M1 depuis l'entrée ----
 let busy = false;
 async function resolveOpen(){
   if(busy) return; busy = true;
   try{
     const now = Math.floor(Date.now()/1000);
     for(const t of journal.filter(t => !t.result)){
-      if(now - t.t0 > MAX_AGE){ t.result = 'expired'; t.t1 = now; continue; }
       const n = Math.min(1500, Math.ceil((now - t.t0)/60) + 5);
       let c; try{ const r = await fetch(`${BACK}/api/candles?asset=${t.asset}&tf=M1&count=${n}`); c = await r.json(); }catch(e){ continue; }
       if(!Array.isArray(c) || !c.length) continue;
       const s = settleTrade(t, c);
+      if(!s && now - t.t0 > (t.maxMin || SIGNAL_MAX_MIN)*60){ t.result = 'expired'; t.t1 = now; continue; }
       if(s){
         Object.assign(t, s);
         toast(`<b style="color:${s.result==='win'?'#29D398':'#FF5C72'}">${s.result==='win' ? 'WIN' : 'LOSS'}</b> · ${t.asset} ${t.side} (${t.src}) · ${s.result==='win' ? '+'+s.r.toFixed(2) : '-1'}R`, s.result==='win' ? '#29D398' : '#FF5C72');
@@ -76,6 +84,7 @@ async function resolveOpen(){
   } finally { busy = false; }
 }
 
+// ---- signaux du moteur support/résistance (backend) ----
 async function pollEngine(){
   for(const a of ASSETS){
     if(openCount(a.id, 'S/R')) continue;
@@ -85,8 +94,8 @@ async function pollEngine(){
         const entry = d.entry || d.price_exness || d.price, side = d.state.toUpperCase();
         const t0 = d.signal_time || Math.floor(Date.now()/1000), nowS = Math.floor(Date.now()/1000);
         const wrongWay = side==='BUY' ? !(d.sl < entry && entry < d.tp) : !(d.tp < entry && entry < d.sl);   // SL/TP du mauvais côté : signal incohérent
-        const tooTight = Math.abs(entry - d.sl) < entry * 0.0002;
-        const tooOld = nowS - t0 > MAX_AGE;
+        const tooTight = Math.abs(entry - d.sl) < entry * 0.0002;       // SL trop près de l'entrée : le spread le touche
+        const tooOld = nowS - t0 > MAX_AGE;                              // signal déjà expiré
         if(!tooTight && !tooOld && !wrongWay && !journal.some(t => t.src==='S/R' && t.asset===a.id && t.side===side && t.lvl===d.level && t.sl===+d.sl && t.tp===+d.tp))
           api.record({ src:'S/R', asset:a.id, tf:'M1', side, entry, sl:+d.sl, tp:+d.tp, lvl:d.level, t0 });
       }
@@ -94,6 +103,7 @@ async function pollEngine(){
   }
 }
 
+// ---- interface ----
 const fmtT = s => { const d = new Date(s*1000); return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); };
 const fp = p => Math.abs(p) >= 100 ? (+p).toFixed(2) : (+p).toFixed(4);
 let filter = 'ALL';
@@ -106,7 +116,7 @@ function render(){
   j.forEach(t => { if(t.result==='win'||t.result==='loss'){ const o = byAsset[t.asset] = byAsset[t.asset] || {w:0,l:0,r:0}; t.result==='win' ? o.w++ : o.l++; o.r += t.r; } });
   const col = v => v >= 0 ? '#29D398' : '#FF5C72';
   let h = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">` +
-    ['ALL','FIB','S/R'].map(f => `<button data-f="${f}" class="${filter===f?'on':''}">${f==='ALL'?'Tous':f==='FIB'?'Signal Fib':'Support/Résistance'}</button>`).join('') +
+    ['ALL','FIB','S/R','SCALP','MICRO'].map(f => `<button data-f="${f}" class="${filter===f?'on':''}">${f==='ALL'?'Tous':f==='FIB'?'Signal Fib':f==='SCALP'?'Scalp':f==='MICRO'?'Micro scalp':'Support/Résistance (bot)'}</button>`).join('') +
     `<button data-act="check">Actualiser</button><button data-act="clear">Effacer le journal</button></div>`;
   h += `<div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px">
     <div><div class="k">Signaux</div><b>${s.total}</b></div>
