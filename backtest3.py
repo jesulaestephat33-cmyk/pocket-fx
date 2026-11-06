@@ -4,9 +4,9 @@ SYMS = {'GER40':'DE30m','CAC40':'FR40m','SPX500':'US500m','NAS100':'USTECm','US3
 
 def load(n, tf):
     import MetaTrader5 as mt5
-    T = {15: mt5.TIMEFRAME_M15, 60: mt5.TIMEFRAME_H1}[tf]; mt5.initialize(); d = {}
+    T = {1: mt5.TIMEFRAME_M1, 5: mt5.TIMEFRAME_M5, 15: mt5.TIMEFRAME_M15, 60: mt5.TIMEFRAME_H1}[tf]; mt5.initialize(); d = {}
     for a, s in SYMS.items():
-        mt5.symbol_select(s, True); r = mt5.copy_rates_from_pos(s, T, 0, n); info = mt5.symbol_info(s)
+        mt5.symbol_select(s, True); r = next((x for x in (mt5.copy_rates_from_pos(s, T, 0, k) for k in (n, n//2, n//4, n//8, n//16)) if x is not None and len(x) > 0), None); print(a, 'bougies chargees :', 0 if r is None else len(r)); info = mt5.symbol_info(s)
         if r is None or info is None: continue
         d[a] = ([{'time':int(x['time']), 'open':float(x['open']), 'high':float(x['high']), 'low':float(x['low']), 'close':float(x['close'])} for x in r], info.spread*info.point)
     return d

@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Backtest Signal Fib</title>
+<style>body{background:#0B0E14;color:#F0F2F6;font:13px 'JetBrains Mono',monospace;padding:20px}pre{white-space:pre-wrap}</style></head>
+<body><h3>Backtest du Signal Fib (ton vrai code)</h3><pre id="out">Chargement...</pre>
+<script src="pfx-structure.js"></script><script src="pfx-fibsignal.js"></script><script src="fibdata.js"></script>
+<script>
+const out = document.getElementById('out'), D = window.FIBDATA, TFM = D.tf;
+const VARS = [['ACTUEL (TP 2R, 60 min)', {rr:2, hold:60, cost:1}], ['sans spread (brut)', {rr:2, hold:60, cost:0}], ['TP 1R', {rr:1, hold:60, cost:1}],
+              ['TP 1.5R', {rr:1.5, hold:60, cost:1}], ['TP 3R', {rr:3, hold:60, cost:1}], ['duree max 240 min', {rr:2, hold:240, cost:1}],
+              ['TP 2R, duree 24 h', {rr:2, hold:1440, cost:1}], ['TP 3R, duree 24 h', {rr:3, hold:1440, cost:1}], ['TP 2R, duree 72 h', {rr:2, hold:4320, cost:1}]];
+const log = t => { out.textContent += '\n' + t; };
+const cache = {};
+function sigAt(a, c, i){
+  const k = a + '|' + i; if(k in cache) return cache[k];
+  const w = c.slice(Math.max(0, i - 1499), i + 1); let s = null;
+  try{ const r = PFX.fibSignal(w, a, 'M' + TFM); if(r.state === 'signal') s = { side:r.side, entry:r.entry, sl:r.sl, risk:r.risk }; }catch(e){}
+  return cache[k] = s;
+}
+function run(a, c, spread, V){
+  const tr = []; const hb = Math.max(1, Math.round(V.hold / TFM)); let i = 100;
+  while(i < c.length - 1){
+    const s = sigAt(a, c, i); if(!s){ i++; continue; }
+    const d = s.side === 'BUY' ? 1 : -1, tp = s.entry + d*V.rr*s.risk; let kind = null, ex = 0, j = i;
+    for(j = i + 1; j <= Math.min(c.length - 1, i + hb); j++){
+      if(d*((d > 0 ? c[j].low : c[j].high) - s.sl) <= 0){ kind = 'sl'; ex = s.sl; break; }
+      if(d*((d > 0 ? c[j].high : c[j].low) - tp) >= 0){ kind = 'tp'; ex = tp; break; }
+    }
+    if(!kind){ j = Math.min(c.length - 1, i + hb); kind = 'exp'; ex = c[j].close; }
+    tr.push({ i, kind, R: (ex - s.entry)*d/s.risk - V.cost*spread/s.risk }); i = j + 1;
+  }
+  return tr;
+}
+function summ(tr){
+  const n = tr.length, R = tr.map(x => x.R), tot = R.reduce((a, b) => a + b, 0), mu = n ? tot/n : 0;
+  const sd = n > 1 ? Math.sqrt(R.reduce((a, b) => a + (b - mu)**2, 0)/(n - 1)) : 0, t = sd > 0 ? mu/(sd/Math.sqrt(n)) : 0;
+  const c = k => tr.filter(x => x.kind === k).length; return { n, tp:c('tp'), sl:c('sl'), exp:c('exp'), tot, mu, t };
+}
+const pad = (s, n) => String(s).padEnd(n), f = (x, d = 1) => (x >= 0 ? '+' : '') + x.toFixed(d);
+async function main(){
+  const names = Object.keys(D.assets), data = {};
+  names.forEach(a => data[a] = { c: D.assets[a].c.map(x => ({ time:x[0], open:x[1], high:x[2], low:x[3], close:x[4] })), spread: D.assets[a].spread });
+  out.textContent = 'Signal Fib (TF M' + TFM + ') - ' + names.map(a => a + ' ' + data[a].c.length).join(' | ');
+  const per = {};
+  for(const [name, V] of VARS){
+    let all = []; const pa = {};
+    for(const a of names){
+      await new Promise(r => setTimeout(r, 0));
+      const t = run(a, data[a].c, data[a].spread, V); pa[a] = summ(t); all = all.concat(t);
+    }
+    const s = summ(all); per[name] = pa;
+    log(pad(name, 26) + pad(s.n + ' signaux', 14) + '| TP ' + pad(s.tp, 4) + ' SL ' + pad(s.sl, 4) + ' exp ' + pad(s.exp, 4) + '| total ' + f(s.tot) + 'R  moy ' + f(s.mu, 3) + 'R  t-stat ' + f(s.t, 2));
+  }
+  log('\nPAR ACTIF (reglage ACTUEL) :');
+  for(const a of names){ const v = per[VARS[0][0]][a]; log('  ' + pad(a, 8) + pad(v.n + ' signaux', 14) + '| TP ' + pad(v.tp, 3) + ' SL ' + pad(v.sl, 3) + ' exp ' + pad(v.exp, 3) + '| total ' + f(v.tot) + 'R'); }
+  log('\nTermine.');
+}
+main();
+</script></body></html>
