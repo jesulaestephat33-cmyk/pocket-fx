@@ -97,6 +97,7 @@ def simulate(m1, h1, spread, P):
         sg = A.signal(k, d, P)
         if not sg: k += 1; continue
         side, entry, sl, tp, risk = sg
+        if P.get('inv'): side = 'down' if side == 'up' else 'up'; sl, tp = tp, sl; risk = abs(entry-sl); tp = entry + (1 if side == 'up' else -1) * P.get('tpk', 1) * abs(tp-entry)
         if spread/risk > P.get('spread_max', 9) or not (P.get('h0', 0) <= (m1[k]['time']//3600) % 24 < P.get('h1', 24)): k += 1; continue
         s = 1 if side == 'up' else -1; k0 = k; res = None
         for j in range(k+1, min(n, k+1+P['hold'])):
@@ -104,7 +105,7 @@ def simulate(m1, h1, spread, P):
             if s*((b['low'] if s > 0 else b['high'])-sl) <= 0: res = ('sl', sl, j); break
             if s*((b['high'] if s > 0 else b['low'])-tp) >= 0: res = ('tp', tp, j); break
             td = A.trend(j)
-            if td != d: res = ('rev', b['close'], j); break
+            if td != d and not P.get('inv'): res = ('rev', b['close'], j); break
         if res is None: j = min(n-1, k+P['hold']); res = ('exp', m1[j]['close'], j)
         kind, ex, j = res; R = (ex-entry)*s/risk - P.get('cost', 1)*spread/risk
         trades.append((k0, kind, R)); k = j+1

@@ -104,11 +104,11 @@ if __name__ == '__main__':
     if 'fadescan' in sys.argv: NAMES[:] = ['FADEORB_%d_%d' % (h, m) for h in range(24) for m in (0, 30)]
     if 'orbscan' in sys.argv: NAMES[:] = ['ORB_%d_%d' % (h, m) for h in range(24) for m in (0, 30)]
     pre = {a:(c, ind(c), sp) for a, (c, sp) in data.items()}
-    print(f"\nTF M{tfm} | R net, spread inclus | appr = 60% ancien, TEST = 40% recent | actifs positifs (net)")
+    print(f"\n{'INVERSE ' if 'inv' in sys.argv else ''}TF M{tfm} | R net, spread inclus | appr = 60% ancien, TEST = 40% recent | actifs positifs (net)")
     for nm in NAMES:
         allr = []; tr = []; te = []; pos = 0
         for a, (c, I, sp) in pre.items():
-            cut = int(len(c)*0.6); t = trades(c, strat(nm, c, I, tfm), sp); net = sum(r-co for _, r, co in t)
+            cut = int(len(c)*0.6); sg = strat(nm, c, I, tfm); sg = [(i, -d, tp, rk, h) for (i, d, rk, tp, h) in sg] if 'inv' in sys.argv else sg; t = trades(c, sg, sp); net = sum(r-co for _, r, co in t)
             pos += 1 if net > 0 else 0
             for i, r, co in t: allr.append((r, co)); (tr if i < cut else te).append(r-co)
         n = len(allr); nets = [r-co for r, co in allr]; mu = sum(nets)/n if n else 0

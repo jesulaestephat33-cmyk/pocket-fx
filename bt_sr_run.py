@@ -2,9 +2,9 @@
 import sys, random, math
 from bt_sr import BASE, simulate, summ
 
-VARIANTES = [('ACTUEL (ton backend)', {}), ('ACTUEL sans spread (brut)', dict(cost=0)), ('spread <= 20% du risque', dict(spread_max=0.2)),
-             ('spread <= 10% du risque', dict(spread_max=0.1)), ('heures 7h-17h UTC', dict(h0=7, h1=17)),
-             ('heures 7-17 + spread <= 20%', dict(h0=7, h1=17, spread_max=0.2)), ('TP 8 + spread <= 20%', dict(tp_atr=8.0, spread_max=0.2))]
+VARIANTES = [('INVERSE TP x1 (base)', dict(inv=1)), ('INVERSE TP x1.5', dict(inv=1, tpk=1.5)), ('INVERSE TP x2', dict(inv=1, tpk=2)),
+             ('INVERSE TP x3', dict(inv=1, tpk=3)), ('INVERSE TP x2 hold 120', dict(inv=1, tpk=2, hold=120)), ('INVERSE TP x3 hold 120', dict(inv=1, tpk=3, hold=120)),
+             ('INVERSE TP x2 brut', dict(inv=1, tpk=2, cost=0))]
 
 def fake():
     random.seed(4); N = 16000; t0 = 1700000000 - 1700000000 % 3600; p = 100.0; m1 = []
@@ -25,8 +25,10 @@ if __name__ == '__main__':
         P = dict(BASE, **ov); tr = []; per = {}
         for a, (m1, h1, sp) in data.items():
             t = simulate(m1, h1, sp, P); per[a] = summ(t); tr += [(a, k, kd, R) for k, kd, R in t]
+        wk = max(0.1, (list(data.values())[0][0][-1]['time'] - list(data.values())[0][0][0]['time'])/604800)
         tr2 = [(k, kd, R) for _, k, kd, R in tr]; s = summ(tr2); allres.append((name, s, per, tr))
         print(f"{name:26s} {s['n']:5d} signaux | TP {s['tp']:4d} SL {s['sl']:4d} renv {s['rev']:3d} exp {s['exp']:4d} | total {s['R']:+8.1f}R moy {s['mu']:+.3f}R t-stat {s['t']:+.2f}")
+        print(f"{'':26s} PAR SEMAINE : {s['n']/wk:.0f} signaux, {s['tp']/wk:.0f} TP, {s['sl']/wk:.0f} SL, {s['exp']/wk:.0f} expires, {s['rev']/wk:.0f} sorties tendance (periode {wk:.1f} semaines)")
     name, s, per, tr = allres[0]
     print('\nPAR ACTIF (reglage ACTUEL) :')
     for a, v in per.items(): print(f"  {a:8s} {v['n']:4d} signaux | TP {v['tp']:3d} SL {v['sl']:3d} | total {v['R']:+7.1f}R")
